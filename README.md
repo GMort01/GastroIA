@@ -66,3 +66,5 @@ Cuando ejecutas esos comandos, se crea o se actualiza una carpeta llamada node_m
 ## 🚀 Una última recomendación Pro
 Si en algún momento sientes que la app "se vuelve loca" o no reconoce una librería que acabas de instalar, el comando de limpieza profunda es tu mejor amigo:
 **Terminal:** `npx expo start -c`
+
+---
