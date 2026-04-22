@@ -10,18 +10,21 @@ import ProSideMenu from '../components/ProSideMenu';
 import { getAIRecommendations } from '../services/aiService';
 import { CartContext } from '../context/CartContext';
 import { ProfileContext } from '../context/ProfileContext';
+import { useFavorites } from '../context/FavoritesContext';
 import { useSettings } from '../context/SettingsContext';
 
 export default function HomeScreen() {
   const navigation = useNavigation();
   const { addItem, cartCount } = useContext(CartContext);
   const { dietType, allergies } = useContext(ProfileContext);
+  const { addFavorite, removeFavorite, isFavorite } = useFavorites();
   const { notificationsEnabled, theme } = useSettings();
   const [antojo, setAntojo] = useState('');
   const [respuestaIA, setRespuestaIA] = useState('');
   const [loading, setLoading] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
-  
+  const [budget, setBudget] = useState('');
+  const [budgetFeedback, setBudgetFeedback] = useState('');
   const [menuVisible, setMenuVisible] = useState(false);
   const styles = getStyles(theme);
 
@@ -34,6 +37,7 @@ export default function HomeScreen() {
     setLoading(true);
     setRespuestaIA('');
     setRecommendations([]);
+    setBudgetFeedback('');
 
     try {
       const results = await getAIRecommendations({ search: antojo, dietType, allergies });
@@ -47,6 +51,19 @@ export default function HomeScreen() {
     }
   };
 
+  const budgetAmount = Number(budget.replace(/[^0-9]/g, '')) || 0;
+  const budgetRecommendations = budgetAmount > 0
+    ? recommendations.filter((item) => item.precio <= budgetAmount)
+    : recommendations;
+  const budgetMessage = budgetAmount > 0
+    ? `Mostrando ${budgetRecommendations.length} platillos dentro de tu presupuesto de $${budgetAmount}.`
+    : '';
+
+  const handleBudgetChange = (value) => {
+    const formatted = value.replace(/[^0-9]/g, '');
+    setBudget(formatted);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ProSideMenu visible={menuVisible} onClose={() => setMenuVisible(false)} />
@@ -58,7 +75,7 @@ export default function HomeScreen() {
           <HeaderComponent onOpenMenu={() => setMenuVisible(true)} onOpenCart={() => navigation.navigate('Cart')} cartCount={cartCount} />
 
           <FlatList
-            data={recommendations}
+            data={budgetRecommendations}
             keyExtractor={(item) => item.id}
             ListHeaderComponent={
               <>
@@ -88,6 +105,26 @@ export default function HomeScreen() {
                       : 'Notificaciones desactivadas. Actívalas en Configuración.'}
                   </Text>
 
+                  <View style={styles.budgetCard}>
+                    <Text style={styles.budgetLabel}>Controla tu presupuesto</Text>
+                    <View style={styles.budgetInputRow}>
+                      <TextInput
+                        style={styles.budgetInput}
+                        placeholder="Presupuesto máximo"
+                        placeholderTextColor={theme.textSecondary}
+                        keyboardType="numeric"
+                        value={budget}
+                        onChangeText={handleBudgetChange}
+                      />
+                      <CustomButton title="Aplicar" onPress={() => {
+                        setBudgetFeedback(budgetAmount > 0 ? budgetMessage : 'Ingresa un presupuesto válido.');
+                      }}
+                      style={styles.budgetButton}
+                      />
+                    </View>
+                    {budgetFeedback !== '' && <Text style={styles.budgetFeedback}>{budgetFeedback}</Text>}
+                  </View>
+
                   <View style={styles.buttonWrapper}>
                     <CustomButton title="Analizar y Recomendar" onPress={analizarAntojo} />
                   </View>
@@ -113,31 +150,75 @@ export default function HomeScreen() {
                 )}
 
                 {recommendations.length > 0 && (
-                  <Text style={styles.recommendationsTitle}>Recomendaciones para ti:</Text>
+                  <View style={styles.recommendationsHeader}>
+                    <Ionicons name="sparkles" size={24} color={theme.primary} />
+                    <Text style={styles.recommendationsTitle}>Recomendaciones para ti</Text>
+                  </View>
+                )}
+                {budgetAmount > 0 && budgetRecommendations.length === 0 && !loading && (
+                  <Text style={styles.budgetWarning}>No hay recomendaciones dentro de ese presupuesto. Ajusta el monto o prueba otra búsqueda.</Text>
                 )}
               </>
             }
             renderItem={({ item }) => {
               const isVegetarian = item.isVegan || (item.tags && item.tags.some(tag => tag.toLowerCase().includes('vegetariana') || tag.toLowerCase().includes('vegana')));
+              const getDishEmoji = () => {
+                const categoria = item.categoria?.toLowerCase() || '';
+                if (categoria.includes('pasta')) return '🍝';
+                if (categoria.includes('pizza')) return '🍕';
+                if (categoria.includes('tacos') || categoria.includes('taco')) return '🌮';
+                if (categoria.includes('sushi')) return '🍣';
+                if (categoria.includes('burger')) return '🍔';
+                if (categoria.includes('ensalada')) return '🥗';
+                if (categoria.includes('postre') || categoria.includes('dessert')) return '🍰';
+                return '🍽️';
+              };
               return (
                 <View style={styles.recommendationItem}>
-                  <View style={styles.itemHeader}>
-                    <Text style={styles.itemName}>{item.nombre}</Text>
-                    <Text style={styles.itemPrice}>${item.precio.toFixed(2)}</Text>
+                  <View style={styles.itemHeaderNew}>
+                    <View style={styles.emojiContainer}>
+                      <Text style={styles.emojiText}>{getDishEmoji()}</Text>
+                    </View>
+                    <View style={styles.itemTitleSection}>
+                      <Text style={styles.itemNameNew} numberOfLines={2}>{item.nombre}</Text>
+                      <Text style={styles.itemPrice}>${item.precio.toFixed(2)}</Text>
+                    </View>
+                    <TouchableOpacity style={styles.favoriteBtnCompact} onPress={() => isFavorite(item.id) ? removeFavorite(item.id) : addFavorite(item)}>
+                      <Ionicons
+                        name={isFavorite(item.id) ? 'heart' : 'heart-outline'}
+                        size={20}
+                        color={isFavorite(item.id) ? theme.primary : theme.textSecondary}
+                      />
+                    </TouchableOpacity>
                   </View>
-                  <Text style={styles.itemDescription}>{item.descripcion}</Text>
-                  <View style={styles.itemFooter}>
-                    <Text style={styles.restaurantName}>{item.restaurantName}</Text>
-                    <Text style={styles.deliveryTime}>{item.deliveryTime}</Text>
-                  </View>
-                  <TouchableOpacity style={styles.addButton} onPress={() => addItem(item)}>
-                    <Text style={styles.addButtonText}>Añadir al carrito</Text>
-                  </TouchableOpacity>
+
                   {item.isVegan ? (
-                    <Text style={[styles.badge, styles.veganBadge]}>🌱 Vegano</Text>
+                    <View style={[styles.badgeNew, styles.veganBadge]}>
+                      <Text style={styles.badgeText}>🌱 Vegano</Text>
+                    </View>
                   ) : isVegetarian ? (
-                    <Text style={[styles.badge, styles.vegetarianBadge]}>🥦 Vegetariano</Text>
+                    <View style={[styles.badgeNew, styles.vegetarianBadge]}>
+                      <Text style={styles.badgeText}>🥦 Vegetariano</Text>
+                    </View>
                   ) : null}
+
+                  <Text style={styles.itemDescription}>{item.descripcion}</Text>
+
+                  <View style={styles.itemMetaRow}>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="location-outline" size={14} color={theme.textSecondary} />
+                      <Text style={styles.metaText} numberOfLines={1}>{item.restaurantName}</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="timer-outline" size={14} color={theme.textSecondary} />
+                      <Text style={styles.metaText}>{item.deliveryTime}</Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity style={styles.addButtonNew} onPress={() => addItem(item)}>
+                    <Ionicons name="add-circle" size={18} color={theme.surface} style={{ marginRight: 6 }} />
+                    <Text style={styles.addButtonTextNew}>Añadir al carrito</Text>
+                  </TouchableOpacity>
                 </View>
               );
             }}
@@ -160,188 +241,324 @@ const getStyles = (theme) =>
       backgroundColor: theme.background,
     },
     scrollContent: {
-      padding: 20,
       paddingBottom: 40,
     },
     inputSection: {
-      marginBottom: 30,
+      paddingHorizontal: 20,
+      paddingVertical: 24,
+      backgroundColor: theme.background,
+      marginBottom: 10,
     },
     sectionTitle: {
-      fontSize: 18,
-      fontWeight: '700',
+      fontSize: 24,
+      fontWeight: '800',
       color: theme.text,
-      marginBottom: 15,
+      marginBottom: 8,
+      letterSpacing: -0.5,
+    },
+    profileHint: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      marginBottom: 18,
+      fontWeight: '500',
+      lineHeight: 19,
     },
     inputContainer: {
       flexDirection: 'row',
       alignItems: 'flex-start',
       backgroundColor: theme.surface,
       borderColor: theme.border,
-      borderWidth: 1,
-      borderRadius: 16,
-      paddingHorizontal: 15,
-      paddingVertical: 10,
+      borderWidth: 1.5,
+      borderRadius: 18,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
       shadowColor: theme.shadow,
-      shadowOffset: { width: 0, height: 2 },
-      shadowOpacity: 0.05,
-      shadowRadius: 8,
-      elevation: 3,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
+      shadowRadius: 12,
+      elevation: 4,
     },
     inputIcon: {
-      marginTop: 12,
-      marginRight: 10,
+      marginTop: 14,
+      marginRight: 12,
     },
     input: {
       flex: 1,
-      fontSize: 16,
+      fontSize: 15,
       color: theme.text,
       minHeight: 80,
       textAlignVertical: 'top',
+      fontWeight: '500',
     },
     buttonWrapper: {
-      marginTop: 20,
+      marginTop: 18,
     },
     aiResponseSection: {
-      marginTop: 10,
+      marginTop: 16,
+      paddingHorizontal: 20,
     },
     aiHeader: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 10,
-      paddingLeft: 5,
+      marginBottom: 12,
+      paddingLeft: 2,
     },
     aiHeaderText: {
-      fontSize: 14,
-      fontWeight: '600',
+      fontSize: 12,
+      fontWeight: '700',
       color: theme.primary,
       marginLeft: 8,
       textTransform: 'uppercase',
-      letterSpacing: 1,
-    },
-    profileHint: {
-      fontSize: 14,
-      color: theme.textSecondary,
-      marginBottom: 12,
+      letterSpacing: 1.5,
     },
     notificationInfo: {
-      fontSize: 14,
+      fontSize: 13,
       color: theme.textSecondary,
-      marginTop: 12,
-    },
-    aiBubble: {
+      marginTop: 14,
+      fontWeight: '500',
       backgroundColor: theme.surface,
-      padding: 20,
-      borderRadius: 20,
-      borderBottomLeftRadius: 5,
+      padding: 12,
+      borderRadius: 12,
       borderWidth: 1,
       borderColor: theme.border,
-      shadowColor: theme.shadow,
-      shadowOffset: { width: 0, height: 1 },
-      shadowOpacity: 0.03,
-      shadowRadius: 5,
-      elevation: 2,
+    },
+    aiBubble: {
+      backgroundColor: theme.primary + '12',
+      padding: 16,
+      borderRadius: 20,
+      borderBottomLeftRadius: 6,
+      borderWidth: 1.5,
+      borderColor: theme.primary + '30',
+      shadowColor: theme.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.08,
+      shadowRadius: 10,
+      elevation: 3,
     },
     aiText: {
-      fontSize: 16,
+      fontSize: 15,
       color: theme.text,
       lineHeight: 24,
+      fontWeight: '500',
     },
     loadingSection: {
       alignItems: 'center',
-      marginTop: 20,
+      marginTop: 28,
+      marginBottom: 28,
+      paddingVertical: 20,
     },
     loadingText: {
-      marginTop: 10,
-      fontSize: 16,
+      marginTop: 12,
+      fontSize: 15,
       color: theme.textSecondary,
+      fontWeight: '500',
+    },
+    recommendationsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      marginTop: 24,
+      marginBottom: 16,
     },
     recommendationsTitle: {
-      fontSize: 18,
-      fontWeight: '700',
+      fontSize: 20,
+      fontWeight: '800',
       color: theme.text,
-      marginBottom: 15,
+      marginLeft: 10,
+      letterSpacing: -0.3,
     },
     recommendationItem: {
       backgroundColor: theme.surface,
-      padding: 15,
-      borderRadius: 12,
-      marginBottom: 10,
+      marginHorizontal: 20,
+      marginBottom: 14,
+      paddingTop: 14,
+      paddingHorizontal: 16,
+      paddingBottom: 14,
+      borderRadius: 16,
       borderWidth: 1,
       borderColor: theme.border,
       shadowColor: theme.shadow,
+      shadowOffset: { width: 0, height: 3 },
+      shadowOpacity: 0.06,
+      shadowRadius: 10,
+      elevation: 4,
+    },
+    budgetCard: {
+      marginTop: 22,
+      marginHorizontal: 20,
+      padding: 18,
+      borderRadius: 18,
+      backgroundColor: theme.primary + '08',
+      borderWidth: 1.5,
+      borderColor: theme.primary + '25',
+      shadowColor: theme.primary,
       shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.05,
       shadowRadius: 8,
-      elevation: 3,
+      elevation: 2,
     },
-    itemHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginBottom: 5,
-    },
-    itemName: {
-      fontSize: 16,
-      fontWeight: '600',
+    budgetLabel: {
       color: theme.text,
+      fontSize: 14,
+      fontWeight: '700',
+      marginBottom: 12,
+      letterSpacing: 0.3,
+    },
+    budgetInputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    budgetInputSpacer: {
+      width: 10,
+    },
+    budgetInput: {
+      flex: 1,
+      backgroundColor: theme.background,
+      color: theme.text,
+      borderRadius: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderWidth: 1.5,
+      borderColor: theme.border,
+      fontWeight: '600',
+      fontSize: 15,
+    },
+    budgetButton: {
+      minWidth: 90,
+    },
+    budgetFeedback: {
+      marginTop: 12,
+      color: theme.textSecondary,
+      fontSize: 13,
+      fontWeight: '600',
+      backgroundColor: theme.background,
+      padding: 10,
+      borderRadius: 10,
+      textAlign: 'center',
+    },
+    budgetWarning: {
+      marginHorizontal: 20,
+      marginBottom: 14,
+      color: '#92400E',
+      backgroundColor: '#FEF3C7',
+      padding: 14,
+      borderRadius: 14,
+      borderWidth: 1.5,
+      borderColor: '#FCD34D',
+      fontSize: 13,
+      fontWeight: '600',
+      lineHeight: 19,
+    },
+    // New item card styles
+    itemHeaderNew: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      marginBottom: 12,
+      gap: 12,
+    },
+    emojiContainer: {
+      width: 48,
+      height: 48,
+      borderRadius: 14,
+      backgroundColor: theme.primary + '15',
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: theme.primary + '30',
+    },
+    emojiText: {
+      fontSize: 28,
+    },
+    itemTitleSection: {
       flex: 1,
     },
-    itemPrice: {
-      fontSize: 16,
+    itemNameNew: {
+      fontSize: 15,
       fontWeight: '700',
-      color: theme.primary,
-    },
-    itemDescription: {
-      fontSize: 14,
-      color: theme.textSecondary,
-      marginBottom: 10,
-      lineHeight: 20,
-    },
-    itemFooter: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-    },
-    restaurantName: {
-      fontSize: 14,
-      fontWeight: '500',
       color: theme.text,
+      marginBottom: 4,
+      lineHeight: 20,
+      letterSpacing: -0.2,
     },
-    deliveryTime: {
-      fontSize: 14,
-      color: theme.textSecondary,
+    itemPrice: {
+      fontSize: 15,
+      fontWeight: '800',
+      color: theme.primary,
+      letterSpacing: -0.3,
     },
-    badge: {
-      position: 'absolute',
-      top: 10,
-      right: 10,
-      fontSize: 12,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: 10,
-      borderWidth: 1,
+    favoriteBtnCompact: {
+      padding: 8,
+    },
+    badgeNew: {
+      alignSelf: 'flex-start',
+      fontSize: 11,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: 12,
+      borderWidth: 1.5,
+      fontWeight: '700',
+      marginBottom: 10,
+    },
+    badgeText: {
+      fontSize: 11,
       fontWeight: '700',
     },
     veganBadge: {
-      backgroundColor: theme.surface,
+      backgroundColor: theme.background,
       color: theme.primary,
       borderColor: theme.primary,
     },
     vegetarianBadge: {
-      backgroundColor: '#f0f7d8',
-      color: '#758a1f',
-      borderColor: '#b4c251',
+      backgroundColor: '#F0FDF4',
+      color: '#166534',
+      borderColor: '#86EFAC',
     },
-    addButton: {
-      marginTop: 12,
-      backgroundColor: theme.primary,
-      borderRadius: 12,
-      paddingVertical: 12,
+    itemDescription: {
+      fontSize: 13,
+      color: theme.textSecondary,
+      marginBottom: 12,
+      lineHeight: 19,
+      fontWeight: '500',
+    },
+    itemMetaRow: {
+      flexDirection: 'row',
+      gap: 16,
+      marginBottom: 12,
+      paddingTop: 10,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+    },
+    metaItem: {
+      flexDirection: 'row',
       alignItems: 'center',
+      gap: 6,
+      flex: 1,
     },
-    addButtonText: {
+    metaText: {
+      fontSize: 12,
+      color: theme.textSecondary,
+      fontWeight: '600',
+      flex: 1,
+    },
+    addButtonNew: {
+      backgroundColor: theme.primary,
+      borderRadius: 14,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+      alignItems: 'center',
+      justifyContent: 'center',
+      flexDirection: 'row',
+      shadowColor: theme.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.2,
+      shadowRadius: 8,
+      elevation: 5,
+    },
+    addButtonTextNew: {
       color: theme.surface,
-      fontSize: 14,
+      fontSize: 13,
       fontWeight: '700',
+      letterSpacing: 0.2,
     },
   });

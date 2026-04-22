@@ -14,6 +14,7 @@ export default function ProSideMenu({ visible, onClose }) {
   const styles = getStyles(theme);
 
   const handleNavigation = (screenName) => {
+    console.log('Navigating to:', screenName);
     onClose(); 
     setTimeout(() => {
       navigation.navigate(screenName); 
@@ -56,6 +57,22 @@ export default function ProSideMenu({ visible, onClose }) {
                 title="Carrito" 
                 active={currentScreen === 'Cart'}
                 onPress={() => handleNavigation('Cart')} 
+                styles={styles}
+                theme={theme}
+              />
+              <MenuItem 
+                icon="heart-outline" 
+                title="Favoritos" 
+                active={currentScreen === 'Favorites'}
+                onPress={() => handleNavigation('Favorites')} 
+                styles={styles}
+                theme={theme}
+              />
+              <MenuItem 
+                icon="time-outline" 
+                title="Historial" 
+                active={currentScreen === 'History'}
+                onPress={() => handleNavigation('History')} 
                 styles={styles}
                 theme={theme}
               />

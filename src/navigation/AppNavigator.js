@@ -9,6 +9,8 @@ import CartScreen from '../screens/CartScreen';
 import AccountScreen from '../screens/AccountScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import AboutScreen from '../screens/AboutScreen';
+import HistoryScreen from '../screens/HistoryScreen';
+import FavoritesScreen from '../screens/FavoritesScreen';
 
 const Stack = createNativeStackNavigator();
 
@@ -47,9 +49,11 @@ export default function AppNavigator() {
       >
         <Stack.Screen name="Home" component={HomeScreen} />
         <Stack.Screen name="Cart" component={CartScreen} />
+        <Stack.Screen name="Favorites" component={FavoritesScreen} />
         <Stack.Screen name="Account" component={AccountScreen} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="About" component={AboutScreen} />
+        <Stack.Screen name="History" component={HistoryScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -3,17 +3,17 @@ import React from 'react';
 import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { useSettings } from '../context/SettingsContext';
 
-export default function CustomButton({ title, onPress }) {
+export default function CustomButton({ title, onPress, style, textStyle }) {
   const { theme } = useSettings();
   const styles = getStyles(theme);
 
   return (
     <TouchableOpacity 
-      style={styles.button} 
+      style={[styles.button, style]} 
       onPress={onPress} 
       activeOpacity={0.8}
     >
-      <Text style={styles.text}>{title}</Text>
+      <Text style={[styles.text, textStyle]}>{title}</Text>
     </TouchableOpacity>
   );
 }

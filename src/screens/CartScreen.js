@@ -1,16 +1,24 @@
 // src/screens/CartScreen.js
 import React, { useContext, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { Alert, Modal, ScrollView, View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CartContext } from '../context/CartContext';
 import { useSettings } from '../context/SettingsContext';
+import { useHistory } from '../context/HistoryContext';
+import { DUMMY_MENUS } from '../Data/menus';
 import CustomButton from '../components/CustomButton';
 
 export default function CartScreen({ navigation }) {
-  const { cartItems, cartCount, subtotal, tip, total, increaseQuantity, decreaseQuantity, removeItem, setTip, clearCart } = useContext(CartContext);
-  const [tipInput, setTipInput] = useState(String(tip));
+  const { width } = useWindowDimensions();
+  const isWeb = width > 768;
+  const { cartItems = [], cartCount = 0, subtotal = 0, tip = 0, total = 0, increaseQuantity, decreaseQuantity, removeItem, setTip, clearCart } = useContext(CartContext);
+  const [tipInput, setTipInput] = useState(String(tip || 0));
+  const [receiptVisible, setReceiptVisible] = useState(false);
+  const [receiptText, setReceiptText] = useState('');
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const { theme } = useSettings();
+  const { addPurchase } = useHistory();
   const styles = getStyles(theme);
 
   const handleSetTip = () => {
@@ -18,11 +26,80 @@ export default function CartScreen({ navigation }) {
     setTip(isNaN(parsed) ? 0 : parsed);
   };
 
+  const handleSetTipPercent = (percent) => {
+    const computedTip = Math.round((subtotal * percent) / 100);
+    setTip(computedTip);
+    setTipInput(String(computedTip));
+  };
+
   const handleClearCart = () => {
-    Alert.alert('Vaciar carrito', '¿Estás seguro de eliminar todos los items?', [
-      { text: 'Cancelar', style: 'cancel' },
-      { text: 'Vaciar', style: 'destructive', onPress: clearCart },
-    ]);
+    setShowClearConfirm(true);
+  };
+
+  const confirmClearCart = () => {
+    clearCart();
+    setShowClearConfirm(false);
+  };
+
+  const cancelClearCart = () => {
+    setShowClearConfirm(false);
+  };
+
+  const handleFinalizeOrder = () => {
+    if (cartItems.length === 0) {
+      Alert.alert('Carrito vacío', 'Agrega productos al carrito antes de finalizar.');
+      return;
+    }
+
+    const receipt = generateReceipt();
+    addPurchase({
+      items: cartItems,
+      subtotal,
+      tip,
+      total,
+    });
+    setReceiptText(receipt);
+    setReceiptVisible(true);
+  };
+
+  const closeReceipt = () => {
+    clearCart();
+    setTip(0);
+    setTipInput('0');
+    setReceiptVisible(false);
+  };
+
+  const cartSuggestions = cartItems.flatMap((item) => {
+    const cheaperAlternatives = DUMMY_MENUS.filter((menuItem) =>
+      menuItem.categoria === item.categoria &&
+      menuItem.id !== item.id &&
+      menuItem.precio < item.precio
+    );
+
+    if (!cheaperAlternatives.length) return [];
+
+    const bestAlternative = cheaperAlternatives.reduce((prev, current) =>
+      current.precio < prev.precio ? current : prev
+    );
+
+    const savings = item.precio - bestAlternative.precio;
+    if (savings <= 0) return [];
+
+    return [{ original: item, alternative: bestAlternative, savings }];
+  }).slice(0, 2);
+
+  const generateReceipt = () => {
+    let receipt = '🍕 Recibo de pedido - GastroIA\n\n';
+    cartItems.forEach(item => {
+      receipt += `${item.nombre}\n`;
+      receipt += `  Cantidad: ${item.quantity} x $${item.precio} = $${item.precio * item.quantity}\n`;
+      receipt += `  Restaurante: ${item.restaurantName || 'N/A'}\n\n`;
+    });
+    receipt += `Subtotal: $${subtotal}\n`;
+    receipt += `Propina: $${tip}\n`;
+    receipt += `Total: $${total}\n\n`;
+    receipt += '¡Gracias por tu pedido! Tu comida estará lista pronto. 🍽️';
+    return receipt;
   };
 
   return (
@@ -42,66 +119,194 @@ export default function CartScreen({ navigation }) {
           <Text style={styles.emptyCartSubText}>Agrega platillos desde la búsqueda y vuelve cuando quieras.</Text>
         </View>
       ) : (
-        <View style={styles.content}>
-          <FlatList
-            data={cartItems}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.cartList}
-            renderItem={({ item }) => (
-              <View style={styles.itemCard}>
-                <View style={styles.itemCardHeader}>
-                  <Text style={styles.itemName}>{item.nombre}</Text>
-                  <TouchableOpacity onPress={() => removeItem(item.id)}>
-                    <Ionicons name="trash-bin-outline" size={22} color={theme.error} />
-                  </TouchableOpacity>
+        <View style={[styles.content, isWeb && styles.contentWeb]}>
+          {isWeb ? (
+            <ScrollView contentContainerStyle={styles.webContainer} showsVerticalScrollIndicator={false}>
+              <View style={styles.tableContainer}>
+                <View style={styles.tableHeader}>
+                  <Text style={[styles.tableHeaderCell, styles.tableColName]}>Platillo</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColRest]}>Restaurante</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColPrice]}>Precio</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColQty]}>Cantidad</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColTotal]}>Total</Text>
+                  <Text style={[styles.tableHeaderCell, styles.tableColAction]} />
                 </View>
-                <Text style={styles.itemRestaurant}>{item.restaurantName}</Text>
-                <Text style={styles.itemPrice}>{item.quantity} × ${item.precio}</Text>
-                <View style={styles.quantityRow}>
-                  <TouchableOpacity style={styles.quantityButton} onPress={() => decreaseQuantity(item.id)}>
-                    <Text style={styles.quantityButtonText}>-</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.quantityValue}>{item.quantity}</Text>
-                  <TouchableOpacity style={styles.quantityButton} onPress={() => increaseQuantity(item.id)}>
-                    <Text style={styles.quantityButtonText}>+</Text>
-                  </TouchableOpacity>
-                </View>
+                {cartItems.map((item) => (
+                  <View key={item.id} style={styles.tableRow}>
+                    <Text style={[styles.tableCell, styles.tableColName]} numberOfLines={1}>{item.nombre}</Text>
+                    <Text style={[styles.tableCell, styles.tableColRest]} numberOfLines={1}>{item.restaurantName}</Text>
+                    <Text style={[styles.tableCell, styles.tableColPrice]}>${item.precio}</Text>
+                    <View style={[styles.tableCell, styles.tableColQty, styles.quantityRowCompact]}>
+                      <TouchableOpacity style={styles.quantityButtonSmall} onPress={() => decreaseQuantity(item.id)}>
+                        <Text style={styles.quantityButtonSmallText}>−</Text>
+                      </TouchableOpacity>
+                      <Text style={styles.quantityValueCompact}>{item.quantity}</Text>
+                      <TouchableOpacity style={styles.quantityButtonSmall} onPress={() => increaseQuantity(item.id)}>
+                        <Text style={styles.quantityButtonSmallText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={[styles.tableCell, styles.tableColTotal, styles.cellBold]}>${item.precio * item.quantity}</Text>
+                    <TouchableOpacity style={[styles.tableCell, styles.tableColAction]} onPress={() => removeItem(item.id)}>
+                      <Ionicons name="trash-bin-outline" size={18} color={theme.error} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
               </View>
-            )}
-            showsVerticalScrollIndicator={false}
-          />
+            </ScrollView>
+          ) : (
+            <FlatList
+              data={cartItems}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.cartList}
+              renderItem={({ item }) => (
+                <View style={styles.itemCard}>
+                  <View style={styles.itemCardHeader}>
+                    <Text style={styles.itemName}>{item.nombre}</Text>
+                    <TouchableOpacity onPress={() => removeItem(item.id)}>
+                      <Ionicons name="trash-bin-outline" size={22} color={theme.error} />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.itemRestaurant}>{item.restaurantName}</Text>
+                  <Text style={styles.itemPrice}>{item.quantity} × ${item.precio}</Text>
+                  <View style={styles.quantityRow}>
+                    <TouchableOpacity style={styles.quantityButton} onPress={() => decreaseQuantity(item.id)}>
+                      <Text style={styles.quantityButtonText}>-</Text>
+                    </TouchableOpacity>
+                    <Text style={styles.quantityValue}>{item.quantity}</Text>
+                    <TouchableOpacity style={styles.quantityButton} onPress={() => increaseQuantity(item.id)}>
+                      <Text style={styles.quantityButtonText}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+              showsVerticalScrollIndicator={false}
+            />
+          )}
 
-          <View style={styles.summaryCard}>
+          {!isWeb && cartSuggestions.length > 0 && (
+            <View style={styles.suggestionsCard}>
+              <Text style={styles.suggestionsTitle}>Sugerencias inteligentes</Text>
+              {cartSuggestions.map((suggestion, index) => (
+                <View key={index} style={styles.suggestionItem}>
+                  <Text style={styles.suggestionText}>
+                    Cambia {suggestion.original.nombre} por {suggestion.alternative.nombre} y ahorra ${suggestion.savings}.
+                  </Text>
+                  <Text style={styles.suggestionHint}>
+                    Misma categoría: {suggestion.original.categoria}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <View style={[styles.summaryCard, isWeb && styles.summaryCardWeb]}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Subtotal</Text>
               <Text style={styles.summaryValue}>${subtotal}</Text>
             </View>
-            <View style={styles.tipRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.summaryLabel}>Propina (COP)</Text>
-                <TextInput
-                  style={styles.tipInput}
-                  placeholder="0"
-                  placeholderTextColor={theme.textSecondary}
-                  keyboardType="numeric"
-                  value={tipInput}
-                  onChangeText={setTipInput}
-                  onEndEditing={handleSetTip}
-                />
+            {!isWeb && (
+              <>
+                <View style={styles.tipRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.summaryLabel}>Propina (COP)</Text>
+                    <TextInput
+                      style={[styles.tipInput, styles.tipInputCompact]}
+                      placeholder="0"
+                      placeholderTextColor={theme.textSecondary}
+                      keyboardType="numeric"
+                      value={tipInput}
+                      onChangeText={setTipInput}
+                      onEndEditing={handleSetTip}
+                    />
+                  </View>
+                  <TouchableOpacity style={styles.tipButton} onPress={handleSetTip}>
+                    <Text style={styles.tipButtonText}>Agregar</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.tipHelperText}>Elige una propina rápida basada en tu subtotal:</Text>
+                <View style={styles.tipOptionsRow}>
+                  {[10, 15, 20, 25].map((percent) => (
+                    <TouchableOpacity
+                      key={percent}
+                      style={styles.tipOptionButton}
+                      onPress={() => handleSetTipPercent(percent)}
+                    >
+                      <Text style={styles.tipOptionText}>{percent}%</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <View style={styles.tipQuickSummary}>
+                  <Text style={styles.tipQuickText}>10% = ${Math.round(subtotal * 0.10)}</Text>
+                  <Text style={styles.tipQuickText}>15% = ${Math.round(subtotal * 0.15)}</Text>
+                  <Text style={styles.tipQuickText}>20% = ${Math.round(subtotal * 0.20)}</Text>
+                </View>
+              </>
+            )}
+            {isWeb && (
+              <View style={styles.tipRowWeb}>
+                <View style={styles.tipInputWebContainer}>
+                  <Text style={styles.summaryLabelWeb}>Propina:</Text>
+                  <TextInput
+                    style={styles.tipInputWeb}
+                    placeholder="0"
+                    placeholderTextColor={theme.textSecondary}
+                    keyboardType="numeric"
+                    value={tipInput}
+                    onChangeText={setTipInput}
+                    onEndEditing={handleSetTip}
+                  />
+                </View>
+                <View style={styles.tipButtonsWebRow}>
+                  {[10, 15, 20].map((percent) => (
+                    <TouchableOpacity
+                      key={percent}
+                      style={styles.tipButtonWeb}
+                      onPress={() => handleSetTipPercent(percent)}
+                    >
+                      <Text style={styles.tipButtonWebText}>{percent}%</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
-              <TouchableOpacity style={styles.tipButton} onPress={handleSetTip}>
-                <Text style={styles.tipButtonText}>Agregar</Text>
-              </TouchableOpacity>
-            </View>
+            )}
             <View style={[styles.summaryRow, styles.totalRow]}>
               <Text style={styles.totalLabel}>Total</Text>
               <Text style={styles.totalValue}>${total}</Text>
             </View>
-            <CustomButton title="Finalizar pedido" onPress={() => Alert.alert('Pedido enviado', 'Tu pedido ha sido registrado.')} />
+            <CustomButton title="Finalizar pedido" onPress={handleFinalizeOrder} />
             <TouchableOpacity style={styles.clearButton} onPress={handleClearCart}>
               <Text style={styles.clearButtonText}>Vaciar carrito</Text>
             </TouchableOpacity>
           </View>
+
+          <Modal visible={receiptVisible} transparent animationType="slide">
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Factura de tu pedido</Text>
+                <ScrollView style={styles.modalScroll}>
+                  <Text style={styles.modalText}>{receiptText}</Text>
+                </ScrollView>
+                <CustomButton title="Cerrar" onPress={closeReceipt} />
+              </View>
+            </View>
+          </Modal>
+
+          <Modal visible={showClearConfirm} transparent animationType="fade">
+            <View style={styles.modalOverlay}>
+              <View style={styles.confirmModal}>
+                <Text style={styles.modalTitle}>Vaciar carrito</Text>
+                <Text style={styles.modalText}>¿Deseas eliminar todos los productos del carrito?</Text>
+                <View style={styles.confirmButtonsRow}>
+                  <TouchableOpacity style={[styles.clearButton, styles.cancelButton]} onPress={cancelClearCart}>
+                    <Text style={[styles.clearButtonText, { color: theme.text }]}>Cancelar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.clearButton, styles.confirmButton]} onPress={confirmClearCart}>
+                    <Text style={styles.clearButtonText}>Confirmar</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
         </View>
       )}
     </SafeAreaView>
@@ -166,9 +371,9 @@ const getStyles = (theme) =>
     },
     itemCard: {
       backgroundColor: theme.surface,
-      borderRadius: 16,
-      padding: 16,
-      marginBottom: 14,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 10,
       borderWidth: 1,
       borderColor: theme.border,
     },
@@ -179,7 +384,7 @@ const getStyles = (theme) =>
       marginBottom: 8,
     },
     itemName: {
-      fontSize: 16,
+      fontSize: 15,
       fontWeight: '700',
       color: theme.text,
       flex: 1,
@@ -187,36 +392,38 @@ const getStyles = (theme) =>
     },
     itemRestaurant: {
       color: theme.textSecondary,
-      fontSize: 13,
-      marginBottom: 10,
+      fontSize: 12,
+      marginBottom: 8,
     },
     itemPrice: {
-      fontSize: 15,
+      fontSize: 14,
       color: theme.text,
-      marginBottom: 12,
+      marginBottom: 10,
     },
     quantityRow: {
       flexDirection: 'row',
       alignItems: 'center',
     },
     quantityButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 12,
+      width: 32,
+      height: 32,
+      borderRadius: 10,
       backgroundColor: theme.primaryLight,
       justifyContent: 'center',
       alignItems: 'center',
     },
     quantityButtonText: {
-      fontSize: 18,
+      fontSize: 16,
       color: theme.primary,
       fontWeight: '700',
     },
     quantityValue: {
-      fontSize: 16,
+      fontSize: 14,
       fontWeight: '600',
       color: theme.text,
-      marginHorizontal: 12,
+      marginHorizontal: 10,
+      minWidth: 24,
+      textAlign: 'center',
     },
     summaryCard: {
       backgroundColor: theme.surface,
@@ -244,7 +451,7 @@ const getStyles = (theme) =>
     tipRow: {
       flexDirection: 'row',
       alignItems: 'center',
-      marginBottom: 18,
+      marginBottom: 12,
     },
     tipInput: {
       backgroundColor: theme.background,
@@ -252,20 +459,87 @@ const getStyles = (theme) =>
       borderWidth: 1,
       borderColor: theme.border,
       color: theme.text,
-      height: 48,
+      height: 44,
       paddingHorizontal: 14,
       marginTop: 8,
+    },
+    tipInputCompact: {
+      height: 44,
     },
     tipButton: {
       marginLeft: 12,
       backgroundColor: theme.primary,
       borderRadius: 12,
-      paddingVertical: 14,
+      paddingVertical: 12,
       paddingHorizontal: 18,
     },
     tipButtonText: {
       color: theme.surface,
       fontWeight: '700',
+    },
+    tipHelperText: {
+      marginTop: 6,
+      color: theme.textSecondary,
+      fontSize: 13,
+      marginBottom: 10,
+    },
+    tipOptionsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 12,
+    },
+    tipOptionButton: {
+      flex: 1,
+      backgroundColor: theme.primaryLight,
+      paddingVertical: 10,
+      borderRadius: 12,
+      marginRight: 8,
+      alignItems: 'center',
+    },
+    tipOptionText: {
+      color: theme.primary,
+      fontWeight: '700',
+    },
+    tipQuickSummary: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 16,
+    },
+    tipQuickText: {
+      color: theme.textSecondary,
+      fontSize: 13,
+      flex: 1,
+    },
+    suggestionsCard: {
+      backgroundColor: theme.surface,
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: theme.border,
+      shadowColor: theme.shadow,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.05,
+      shadowRadius: 8,
+      elevation: 3,
+    },
+    suggestionsTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: theme.text,
+      marginBottom: 10,
+    },
+    suggestionItem: {
+      marginBottom: 10,
+    },
+    suggestionText: {
+      color: theme.text,
+      fontSize: 14,
+      marginBottom: 3,
+    },
+    suggestionHint: {
+      color: theme.textSecondary,
+      fontSize: 13,
     },
     totalRow: {
       marginBottom: 20,
@@ -283,10 +557,220 @@ const getStyles = (theme) =>
     clearButton: {
       marginTop: 14,
       alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 14,
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: theme.error,
+      backgroundColor: theme.background,
     },
     clearButtonText: {
       color: theme.error,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0,0,0,0.45)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: 20,
+    },
+    modalContent: {
+      width: '100%',
+      maxWidth: 520,
+      backgroundColor: theme.surface,
+      borderRadius: 20,
+      padding: 22,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    confirmModal: {
+      width: '100%',
+      maxWidth: 420,
+      backgroundColor: theme.surface,
+      borderRadius: 20,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: theme.border,
+    },
+    modalTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: theme.text,
+      marginBottom: 14,
+    },
+    modalText: {
+      color: theme.textSecondary,
+      fontSize: 15,
+      lineHeight: 22,
+      marginBottom: 18,
+    },
+    modalScroll: {
+      maxHeight: 240,
+      marginBottom: 18,
+    },
+    confirmButtonsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
+    cancelButton: {
+      flex: 1,
+      marginRight: 10,
+      borderColor: theme.border,
+    },
+    confirmButton: {
+      flex: 1,
+      backgroundColor: theme.error,
+      borderColor: theme.error,
+    },
+    // Web responsive styles
+    contentWeb: {
+      paddingHorizontal: 20,
+    },
+    webContainer: {
+      paddingVertical: 16,
+    },
+    tableContainer: {
+      borderRadius: 12,
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: theme.border,
+      backgroundColor: theme.surface,
+    },
+    tableHeader: {
+      flexDirection: 'row',
+      backgroundColor: theme.primary + '15',
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border,
+    },
+    tableHeaderCell: {
       fontSize: 14,
       fontWeight: '700',
+      color: theme.text,
+    },
+    tableRow: {
+      flexDirection: 'row',
+      paddingHorizontal: 14,
+      paddingVertical: 11,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border + '40',
+      alignItems: 'center',
+    },
+    tableCell: {
+      fontSize: 13,
+      color: theme.text,
+      paddingRight: 8,
+    },
+    tableColName: {
+      flex: 2,
+    },
+    tableColRest: {
+      flex: 1.5,
+    },
+    tableColPrice: {
+      flex: 0.7,
+      textAlign: 'center',
+    },
+    tableColQty: {
+      flex: 1,
+      justifyContent: 'center',
+    },
+    tableColTotal: {
+      flex: 0.8,
+      textAlign: 'center',
+    },
+    tableColAction: {
+      flex: 0.5,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    quantityRowCompact: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingRight: 0,
+    },
+    quantityButtonSmall: {
+      width: 24,
+      height: 24,
+      borderRadius: 4,
+      backgroundColor: theme.primary + '20',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginHorizontal: 3,
+    },
+    quantityButtonSmallText: {
+      color: theme.primary,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    quantityValueCompact: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.text,
+      minWidth: 20,
+      textAlign: 'center',
+    },
+    cellBold: {
+      fontWeight: '700',
+    },
+    summaryCardWeb: {
+      marginHorizontal: 20,
+      marginBottom: 14,
+    },
+    tipRowWeb: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: 12,
+      borderTopWidth: 1,
+      borderTopColor: theme.border,
+      marginTop: 12,
+    },
+    tipInputWebContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1,
+      marginRight: 12,
+    },
+    summaryLabelWeb: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: theme.textSecondary,
+      marginRight: 8,
+    },
+    tipInputWeb: {
+      flex: 1,
+      borderWidth: 1,
+      borderColor: theme.border,
+      borderRadius: 8,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      fontSize: 13,
+      color: theme.text,
+      backgroundColor: theme.background,
+      minHeight: 36,
+    },
+    tipButtonsWebRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      gap: 8,
+    },
+    tipButtonWeb: {
+      minWidth: 60,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      backgroundColor: theme.primary + '15',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tipButtonWebText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: theme.primary,
     },
   });
